@@ -1,5 +1,7 @@
 # ryGT7
 
+> **Experimental community fork.** Based on the official RyGT7 2026-11-16 release. This branch includes the optimization source and an updated launcher. See [fork changes and build notes (PT-BR)](docs/fork-optimizations.md). The download links below refer to official upstream builds.
+
 An experimental Windows porting runtime for **Gran Turismo 7 (PS4, CUSA24769)**, derived from
 [ryGT](https://github.com/mlgprorektm8/RyGT) and [Ryty](https://github.com/aarvsn/Ryty).
 Rendering uses [shadGT7](https://github.com/RyGT-Team/shadgt7), derived from shadGT/shadPS4.
