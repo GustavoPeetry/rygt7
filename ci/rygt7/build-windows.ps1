@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$SourceSha,
     [Parameter(Mandatory=$true)][string]$RendererSha,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
+    [switch]$ForkPackage,
     # FEAT-GTS-252: the runtime is built with the MSYS2 UCRT64 GCC pinned in ci/rygt7/runtime-toolchain.json,
     # unpacked under ToolsRoot. MSYS2 itself (MsysRoot) only provides its Unix tools (usr\bin).
     [string]$ToolsRoot = 'C:\rygt7-ci\tools\runtime',
@@ -84,7 +85,15 @@ try {
     $runtimeBuild = Join-Path $workspace 'runtime-build'
     # The pinned native CMake and Ninja drive the pinned compiler (MSYS2's own CMake would float).
     Invoke-Checked $nativeCmake @('-S',$source,'-B',$runtimeBuild,'-G','Ninja','-DCMAKE_BUILD_TYPE=Release','-DRTY_BUILD_GUI=OFF','-DBUILD_TESTING=OFF','-DRTY_ENABLE_LTO=OFF',"-DCMAKE_MAKE_PROGRAM=$nativeNinjaCmake","-DCMAKE_C_COMPILER=$($gcc.Replace('\','/'))", "-DCMAKE_CXX_COMPILER=$($ucrt.Replace('\','/'))/bin/g++.exe", "-DPython3_EXECUTABLE=$nativePythonCmake", "-DFFMPEG_PREBUILT_DIR=$($ffmpeg.Replace('\','/'))")
-    Invoke-Checked $nativeCmake @('--build',$runtimeBuild,'--target','ryty','libs','ryty-wheel-probe','--parallel','4')
+    $runtimeTargets = @('ryty','libs','ryty-wheel-probe')
+    $forkArgs = @()
+    if ($ForkPackage) {
+        if (!$env:GITHUB_REPOSITORY -or !$env:GITHUB_REF_NAME) { throw 'GitHub repository and branch are required for fork provenance' }
+        $runtimeTargets += 'ryty_prewarm'
+        $forkArgs = @('--prewarmer',(Join-Path $runtimeBuild 'tools\ryty_prewarm\ryty_prewarm.exe'),
+                      '--project',$env:GITHUB_REPOSITORY,'--branch',$env:GITHUB_REF_NAME)
+    }
+    Invoke-Checked $nativeCmake (@('--build',$runtimeBuild,'--target') + $runtimeTargets + @('--parallel','4'))
     $launcher = Join-Path $workspace 'launcher'; New-Item -ItemType Directory -Path $launcher | Out-Null
     Invoke-CmdFile (Join-Path $source 'loader\build.cmd') $launcher
     if (!(Test-Path -LiteralPath (Join-Path $launcher 'RyGT7.exe'))) { throw 'Launcher output missing' }
@@ -133,6 +142,7 @@ try {
         ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 $toolchainInfo
     $packageOut = Join-Path $workspace 'dist'; New-Item -ItemType Directory -Path $packageOut | Out-Null
     $name = "RyGT7-ci-$($SourceSha.Substring(0,8))"
-    Invoke-Checked $nativePython @((Join-Path $PSScriptRoot 'assemble.py'), '--source',$source,'--fidelityfx',$fidelityfx,'--runtime',(Join-Path $workspace 'assembled-runtime'), '--built-libs',(Join-Path $runtimeBuild 'core\libs\libs'), '--renderer-build',$rendererBuild,'--stubs',$stubDir,'--ucrt',$ucrt,'--info',(Join-Path $workspace 'BUILD_INFO.json'),'--launcher',(Join-Path $launcher 'RyGT7.exe'),'--converter',(Join-Path $runtimeBuild 'core\relinker\ryty.exe'),'--renderer-source',$renderer,'--wheel-probe',(Join-Path $runtimeBuild 'core\libs\prx\libScePad\ryty-wheel-probe.exe'),'--out',$packageOut,'--source-sha',$SourceSha,'--renderer-sha',$RendererSha,'--renderer-configured-url',$pin.repository,'--renderer-fetch-url',$mirror,'--toolchain-info',$toolchainInfo,'--dlss-plugin',(Join-Path $dlssPlugin 'ryGT_dlss.dll'),'--dlss-sdk',$dlssSdk,'--name',$name)
+    $assembleArgs = @((Join-Path $PSScriptRoot 'assemble.py'), '--source',$source,'--fidelityfx',$fidelityfx,'--runtime',(Join-Path $workspace 'assembled-runtime'), '--built-libs',(Join-Path $runtimeBuild 'core\libs\libs'), '--renderer-build',$rendererBuild,'--stubs',$stubDir,'--ucrt',$ucrt,'--info',(Join-Path $workspace 'BUILD_INFO.json'),'--launcher',(Join-Path $launcher 'RyGT7.exe'),'--converter',(Join-Path $runtimeBuild 'core\relinker\ryty.exe'),'--renderer-source',$renderer,'--wheel-probe',(Join-Path $runtimeBuild 'core\libs\prx\libScePad\ryty-wheel-probe.exe'),'--out',$packageOut,'--source-sha',$SourceSha,'--renderer-sha',$RendererSha,'--renderer-configured-url',$pin.repository,'--renderer-fetch-url',$mirror,'--toolchain-info',$toolchainInfo,'--dlss-plugin',(Join-Path $dlssPlugin 'ryGT_dlss.dll'),'--dlss-sdk',$dlssSdk,'--name',$name)
+    Invoke-Checked $nativePython ($assembleArgs + $forkArgs)
     Write-Output "GT7 package: $packageOut\$name.zip"
 } finally { $env:PATH=$oldPath; $env:LIB=$oldLib }

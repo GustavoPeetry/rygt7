@@ -1,0 +1,150 @@
+name: RyGT7 fork CI build
+run-name: RyGT7 fork build (${{ github.ref_name }})
+
+on:
+  push:
+    branches: [optimizations]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rygt7-fork-package-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+      renderer_commit: ${{ steps.source.outputs.renderer_commit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Test build and package controls
+        run: |
+          python3 -B -m unittest discover -s ci/rygt7 -p 'test_*.py'
+          python3 -B -m unittest discover -s ci/rygt7/tests -p 'test_*.py'
+      - name: Pin the fork source and upstream renderer
+        id: source
+        run: python3 -B ci/rygt7/registry_ci.py resolve-fork
+
+  tests:
+    needs: source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          persist-credentials: false
+      - name: Build and test the converter
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build
+          cmake --preset linux-release-cli
+          cmake --build --preset linux-release-cli --parallel 2
+          ctest --test-dir build/linux-release-cli --output-on-failure --no-tests=error --output-junit "$GITHUB_WORKSPACE/rygt7-converter-tests.xml"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rygt7-fork-converter-tests-${{ needs.source.outputs.commit }}
+          path: rygt7-converter-tests.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+  windows:
+    needs: [source, tests]
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      SOURCE_SHA: ${{ needs.source.outputs.commit }}
+      RENDERER_SHA: ${{ needs.source.outputs.renderer_commit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e
+        id: msys2
+        with:
+          msystem: UCRT64
+          location: C:/msys64
+          update: true
+          cache: false
+          install: base-devel git
+      - name: Build and package the Windows fork
+        shell: pwsh
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+          PYTHONDONTWRITEBYTECODE: '1'
+          RYGT_CODESIGN: '0'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config core.longpaths true
+          if ($LASTEXITCODE) { throw 'Git long path configuration failed' }
+          . ./ci/rygt7/setup-tools.ps1
+          & ./ci/rygt7/build-windows.ps1 -SourceRoot $env:GITHUB_WORKSPACE -SourceSha $env:SOURCE_SHA -RendererSha $env:RENDERER_SHA -OutputRoot C:/rygt7-ci/build -MsysRoot $env:MSYS2_ROOT -ForkPackage
+          $env:GT7_SOURCE_ROOT = $env:GITHUB_WORKSPACE
+          $env:GT7_RENDERER_ROOT = 'C:/rygt7-ci/build/renderer-source'
+          python -m unittest discover -s ci/rygt7 -p 'test_*.py'
+          if ($LASTEXITCODE) { throw 'Build adapter regression tests failed' }
+          $env:ARTIFACT_DIR = 'C:/rygt7-ci/build/dist'
+          python ci/rygt7/registry_ci.py validate-fork
+          if ($LASTEXITCODE) { throw 'Windows fork package validation failed' }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rygt7-fork-windows-${{ needs.source.outputs.commit }}-renderer-${{ needs.source.outputs.renderer_commit }}
+          path: |
+            C:/rygt7-ci/build/dist/RyGT7-ci-*.zip
+            C:/rygt7-ci/build/dist/RyGT7-ci-*.zip.sha256
+            C:/rygt7-ci/build/dist/CI-BUILD.json
+          if-no-files-found: error
+          retention-days: 7
+
+  package:
+    needs: [source, windows]
+    runs-on: ubuntu-24.04
+    env:
+      SOURCE_SHA: ${{ needs.source.outputs.commit }}
+      RENDERER_SHA: ${{ needs.source.outputs.renderer_commit }}
+      ARTIFACT_DIR: dist
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: rygt7-fork-windows-${{ needs.source.outputs.commit }}-renderer-${{ needs.source.outputs.renderer_commit }}
+          path: dist/
+      - name: Independently validate the ZIP and provenance
+        run: python3 -B ci/rygt7/registry_ci.py validate-fork
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        id: package_artifact
+        with:
+          name: rygt7-fork-ci-${{ needs.source.outputs.commit }}-renderer-${{ needs.source.outputs.renderer_commit }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Summarize the verified artifact
+        env:
+          ARTIFACT_URL: ${{ steps.package_artifact.outputs.artifact-url }}
+        run: |
+          {
+            echo '### Verified RyGT7 fork artifact'
+            echo
+            echo "Source: [\`$SOURCE_SHA\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$SOURCE_SHA)"
+            echo
+            echo "Renderer: [\`$RENDERER_SHA\`](https://github.com/RyGT-Team/shadgt7/commit/$RENDERER_SHA)"
+            echo
+            echo "[Download artifact]($ARTIFACT_URL)"
+            echo
+            echo "SHA-256: \`$(cut -d ' ' -f 1 dist/RyGT7-ci-*.zip.sha256)\`"
+          } >> "$GITHUB_STEP_SUMMARY"

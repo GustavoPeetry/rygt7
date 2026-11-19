@@ -29,12 +29,13 @@ REQUIRED_RUNTIME = ('libc.prx', 'libkernel.prx', 'libSceFiber.prx', 'libScePad.p
                     'libSceNpSessionSignaling.prx', 'libSceRtc.prx', 'libSceSsl.prx')
 
 
-def launcher_version(source_root):
-    """LauncherVersion.Value from loader/Version.cs, or None when the source has no such file."""
+def launcher_version(source_root, constant='Value'):
+    """Read a literal LauncherVersion constant from the selected source tree."""
     path = Path(source_root) / 'loader/Version.cs'
     if not path.is_file():
         return None
-    match = re.search(r'public const string Value = "([^"]+)";', path.read_text(encoding='utf-8-sig'))
+    match = re.search(r'public const string ' + re.escape(constant) + r' = "([^"]+)";',
+                      path.read_text(encoding='utf-8-sig'))
     return match.group(1) if match else None
 
 def sha(path):
@@ -115,6 +116,13 @@ def assemble(args):
     info['components'] = {name: {'sha256': sha(path), 'origin': origin} for name, path, origin in (
         ('launcher', args.launcher, 'rygt7-source-build'), ('converter', args.converter, 'rygt7-source-build'),
         ('wheel_probe', args.wheel_probe, 'rygt7-source-build'))}
+    prewarmer = getattr(args, 'prewarmer', None)
+    if prewarmer is not None:
+        attribution = launcher_version(args.source, 'Attribution')
+        if not info['launcher_version'] or not attribution:
+            raise ValueError('fork launcher version and attribution are required')
+        info['launcher_display_version'] = f"{info['launcher_version']} - {attribution}"
+        info['components']['prewarmer'] = {'sha256': sha(prewarmer), 'origin': 'rygt7-source-build'}
     args.info.write_text(json.dumps(info, indent=2) + '\n', encoding='utf-8')
 
 def package(args):
@@ -130,12 +138,17 @@ def package(args):
                 '--out', str(args.out), '--name', args.name]
     if getattr(args, 'dlss_plugin', None) is not None:
         sys.argv += ['--dlss-plugin', str(args.runtime / DLSS_PLUGIN), '--dlss-sdk-license', str(args.dlss_sdk / 'LICENSE.txt')]
+    if getattr(args, 'prewarmer', None) is not None:
+        sys.argv += ['--prewarmer', str(args.prewarmer)]
     module.main()
     folder = args.out / args.name
     shutil.copyfile(args.info, folder / 'BUILD_INFO.json')
     # The release template describes historical gameplay, not this CI build.
     readme = folder / 'README.txt'
-    readme.write_text('RyGT7 source CI build. No game, firmware or player data is included.\n'
+    build_info = json.loads(args.info.read_text(encoding='utf-8'))
+    display = build_info.get('launcher_display_version')
+    heading = f'RyGT7 fork CI build. Launcher {display}.\n' if display else 'RyGT7 source CI build.\n'
+    readme.write_text(heading + 'No game, firmware or player data is included.\n'
                       'This CI artifact has not been validated in game.\n'
                       'See BUILD_INFO.json for per-file provenance and docs/launcher.md for setup.\n', encoding='utf-8')
     manifest_path = folder / 'manifest.json'; manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
@@ -153,11 +166,12 @@ def package(args):
         for file in sorted(folder.rglob('*')):
             if file.is_file(): z.write(file, (Path(args.name) / file.relative_to(folder)).as_posix())
     digest = sha(archive); archive.with_suffix('.zip.sha256').write_text(f'{digest}  {archive.name}\n', encoding='ascii')
-    marker = {'schema': 1, 'project': 'rygt-team/rygt7', 'branch': 'main', 'commit': args.source_sha,
+    marker = {'schema': 1, 'project': getattr(args, 'project', 'rygt-team/rygt7'),
+              'branch': getattr(args, 'branch', 'main'), 'commit': args.source_sha,
               'renderer': {'configured_repository': args.renderer_configured_url,
                            'fetched_repository': args.renderer_fetch_url, 'commit': args.renderer_sha},
               'archive': {'name': archive.name, 'sha256': digest}, 'build_info': 'BUILD_INFO.json',
-              'ci_control': json.loads(args.info.read_text(encoding='utf-8'))['ci_control']}
+              'ci_control': build_info['ci_control']}
     (args.out / 'CI-BUILD.json').write_text(json.dumps(marker, indent=2) + '\n', encoding='utf-8')
     print(f'{archive} SHA256 {digest}')
 
@@ -168,6 +182,9 @@ def main():
     p.add_argument('--toolchain-info', type=Path)
     p.add_argument('--dlss-plugin', type=Path, required=True)
     p.add_argument('--dlss-sdk', type=Path, required=True)
+    p.add_argument('--prewarmer', type=Path)
+    p.add_argument('--project', default='rygt-team/rygt7')
+    p.add_argument('--branch', default='main')
     for name in ('source-sha','renderer-sha','renderer-configured-url','renderer-fetch-url','name'):
         p.add_argument('--' + name, required=True)
     args = p.parse_args()

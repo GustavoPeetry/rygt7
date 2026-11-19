@@ -6,6 +6,10 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.1.9 - 2026-11-19
+
+* Shows "Modified By Gustavo Petry" with the launcher version and in the Windows product version.
+
 ## 0.1.8 - 2026-11-19
 
 * Shaders page: adds an opt-in "Precompile shaders before starting game" toggle (`GPU.precompile_before_play`)

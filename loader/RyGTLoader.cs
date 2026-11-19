@@ -1649,7 +1649,7 @@ namespace RyGT
             {
                 Dock = DockStyle.Fill, Logo = logoImage, Title = "GRAN TURISMO", Accent = "7",
                 Caption = Dark.Spaced("CUSA24769   " + (char)183 + "   PS4   " + (char)183 + "   RYGT7 FOR WINDOWS"),
-                Version = "ryGT7 " + (Updater.InstalledVersion(root) ?? "") + "  " + (char)183 + "  launcher " + LauncherVersion.Value +
+                Version = "ryGT7 " + (Updater.InstalledVersion(root) ?? "") + "  " + (char)183 + "  launcher " + LauncherVersion.Display +
                     "  " + (char)183 + "  GT7 " + (char)183 + " CUSA24769"
             };
             // The updater: a newer release shows a notice and an Update button at the top right.
@@ -3239,7 +3239,7 @@ namespace RyGT
             var row = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 2), WrapContents = false };
             var label = new Label
             {
-                Text = "Launcher " + LauncherVersion.Value + (Updater.InstalledVersion(root) == null ? "" : " (" + Updater.InstalledVersion(root) + ")"),
+                Text = "Launcher " + LauncherVersion.Display + (Updater.InstalledVersion(root) == null ? "" : " (" + Updater.InstalledVersion(root) + ")"),
                 AutoSize = false, Width = 196, Height = 20,
                 BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0)
             };

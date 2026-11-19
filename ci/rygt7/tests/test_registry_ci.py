@@ -48,7 +48,7 @@ class Validation(unittest.TestCase):
                      'renderer_configured_url': m.CONFIGURED, 'renderer_fetch_url': m.FETCHED,
                      'renderer_vma_patch': {'path':'externals/vma-patches/0001-trim-empty-default-blocks.patch','sha256':'989c12d4729935f11c05a13eeab0fc96fc99e53055c97bd0b81bce04448d6180','target':'include/vk_mem_alloc.h','verified':True}, 'ci_control': {'repository':None,'commit':None,'run_url':None,'attempt':None},
                      'runtime_files': {p: {'origin': origin(p), 'sha256': m.digest(b'fixture')} for p in self.files if p.startswith(('libs/', 'dlss/')) or p in AMD}}
-    def write(self, extra=(), info=None, bad_hash=False):
+    def write(self, extra=(), info=None, bad_hash=False, project='rygt-team/rygt7', branch='main'):
         files = dict(self.files); files['BUILD_INFO.json'] = json.dumps(info or self.info).encode()
         records = [{'path': p, 'bytes': len(b), 'sha256': m.digest(b)} for p,b in files.items()]
         if bad_hash: records[0]['sha256'] = '0'*64
@@ -60,12 +60,41 @@ class Validation(unittest.TestCase):
             for p in extra: z.writestr(top+'/'+p,b'x')
         checksum = m.digest((self.folder/name).read_bytes())
         (self.folder/(name+'.sha256')).write_text(checksum+'  '+name+'\n')
-        marker = {'schema':1, 'project':'rygt-team/rygt7', 'branch':'main', 'commit':COMMIT,
+        marker = {'schema':1, 'project':project, 'branch':branch, 'commit':COMMIT,
                   'renderer': {'configured_repository':m.CONFIGURED, 'fetched_repository':m.FETCHED, 'commit':m.RENDERER},
                   'ci_control': {'repository':None,'commit':None,'run_url':None,'attempt':None}, 'archive':{'name':name,'sha256':checksum}, 'build_info':'BUILD_INFO.json'}
         (self.folder/'CI-BUILD.json').write_text(json.dumps(marker))
     def test_valid(self):
         self.write(); m.validate(self.folder, COMMIT)
+
+    def test_fork_requires_attributed_version_and_prewarmer_provenance(self):
+        project, branch = 'example/rygt7', 'optimizations'
+        version, attribution = '0.1.9', 'Modified By Gustavo Petry'
+        path = 'tools/ryty_prewarm.exe'
+        self.info.update(launcher_version=version, launcher_display_version=f'{version} - {attribution}',
+                         components={'prewarmer': {'origin': 'rygt7-source-build', 'sha256': m.digest(b'prewarmer')}})
+        self.files[path] = b'prewarmer'
+        expectations = {'project': project, 'branch': branch, 'fork_version': (version, attribution)}
+        self.write(project=project, branch=branch)
+        m.validate(self.folder, COMMIT, **expectations)
+        with self.assertRaises(ValueError):
+            m.validate(self.folder, COMMIT)
+        self.files[path] = b'different file'
+        self.write(project=project, branch=branch)
+        with self.assertRaises(ValueError):
+            m.validate(self.folder, COMMIT, **expectations)
+        del self.files[path]
+        self.write(project=project, branch=branch)
+        with self.assertRaises(ValueError):
+            m.validate(self.folder, COMMIT, **expectations)
+
+    def test_fork_resolves_the_event_commit_without_upstream_source_lookup(self):
+        with mock.patch.dict(os.environ, {'GITHUB_SHA': COMMIT}):
+            with mock.patch.object(m, 'resolve_commit') as lookup:
+                m.resolve_fork()
+                lookup.assert_not_called()
+        self.assertEqual(self.output.read_text().splitlines(),
+                         [f'commit={COMMIT}', f'renderer_commit={RENDERER}'])
     def test_missing_components(self):
         for path in ('RyGT7.exe','converter/ryty.exe','libs/libSceVideoOut.prx'):
             value=self.files.pop(path); self.write()

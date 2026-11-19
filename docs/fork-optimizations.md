@@ -1,6 +1,6 @@
 # RyGT7 com otimizações experimentais
 
-Fork comunitário para Windows x64, mantido por Gustavo Petry. A base é a release oficial [gt7-2026-11-16](https://github.com/RyGT-Team/rygt7/releases/tag/gt7-2026-11-16), no [commit `7dbe4e21b3d26027014efaed694d1eb07c265a0a`](https://github.com/RyGT-Team/rygt7/commit/7dbe4e21b3d26027014efaed694d1eb07c265a0a). Ela traz o launcher 0.1.7. O launcher deste fork é o **0.1.8**. O teste local usou o renderer oficial separado [shadGT7 `3e2b8d76`](https://github.com/RyGT-Team/shadgt7/commit/3e2b8d76d2c38b5da09aadf5b8be7ff76d7f6d64).
+Fork comunitário para Windows x64, mantido por Gustavo Petry. A base é a release oficial [gt7-2026-11-16](https://github.com/RyGT-Team/rygt7/releases/tag/gt7-2026-11-16), no [commit `7dbe4e21b3d26027014efaed694d1eb07c265a0a`](https://github.com/RyGT-Team/rygt7/commit/7dbe4e21b3d26027014efaed694d1eb07c265a0a). Ela traz o launcher 0.1.7. O launcher deste fork exibe **0.1.9 - Modified By Gustavo Petry**. O teste local usou o renderer oficial separado [shadGT7 `3e2b8d76`](https://github.com/RyGT-Team/shadgt7/commit/3e2b8d76d2c38b5da09aadf5b8be7ff76d7f6d64).
 
 ## Mudanças em relação à versão oficial
 
@@ -13,16 +13,22 @@ Fork comunitário para Windows x64, mantido por Gustavo Petry. A base é a relea
 
 Os pipelines gráficos de conteúdo ainda inédito continuam sendo compilados no jogo. A utilidade do pré-aquecimento depende do cache já formado, da GPU e do driver. FPS, estabilidade e qualidade de áudio em corrida ainda precisam de validação comparativa.
 
-## Compilar e usar
+## Baixar uma compilação do fork
+
+No GitHub, abra **Actions → RyGT7 fork CI build** e escolha uma execução concluída com sucesso. O artefato `rygt7-fork-ci-…` contém o ZIP Windows x64, o SHA-256 e o `CI-BUILD.json`. O ZIP inclui `tools/ryty_prewarm.exe` e um manifesto com os commits do fork e do renderer. O pacote é gerado sem certificado de assinatura e fica disponível como artefato da execução por sete dias.
+
+O workflow executa em pushes para `optimizations` e também pelo botão **Run workflow**. A build segue a sequência de testes, compilação e verificação da [CI oficial de referência](https://github.com/RyGT-Team/rygt7/actions/runs/43979749321).
+
+## Compilar e usar localmente
 
 1. Inicialize os submódulos com `git submodule update --init --recursive` e siga o [guia de compilação](../build-support/README.md) para runtime, launcher e renderer.
-2. No mesmo build CMake do runtime, execute `cmake --build build --target ryty_prewarm`. Copie `build/tools/ryty_prewarm/ryty_prewarm.exe` para `tools\ryty_prewarm.exe` no diretório de instalação do runtime. O empacotador herdado não inclui a ferramenta automaticamente.
+2. Para uma montagem manual, execute `cmake --build build --target ryty_prewarm` no mesmo build CMake do runtime. Copie `build/tools/ryty_prewarm/ryty_prewarm.exe` para `tools\ryty_prewarm.exe` no diretório de instalação do runtime. O pacote gerado pela CI já inclui a ferramenta.
 3. Ative a opção na aba **Shaders**. Ela vem desligada. Se o executável auxiliar estiver ausente, o launcher inicia o jogo diretamente. Para inspecionar o cache sem iniciar o jogo, execute `ryty_prewarm.exe inspect --root "<pasta de instalação>" --verify-store`.
 
-Os links de download e o atualizador do launcher apontam para as versões oficiais do RyGT7. Uma atualização oficial pode substituir componentes compilados deste fork.
+Os links de download do projeto de origem e o atualizador do launcher apontam para as versões oficiais do RyGT7. Uma atualização oficial pode substituir componentes compilados deste fork.
 
 ## Validação
 
-No Windows, a revisão confirmou 82 verificações de setup do launcher, os testes de logging e de overlay de `/app0`, e a compilação independente do pré-aquecedor. Na RTX 2060 SUPER, a auditoria identificou 27.826 arquivos SPIR-V, zero arquivos sinalizados como inválidos pelo auditor e 179 receitas compute. A revisão não executou uma corrida comparativa nem gerou um ZIP distribuível do fork.
+No Windows, a revisão confirmou 82 verificações de setup do launcher, os testes de logging e de overlay de `/app0`, e a compilação independente do pré-aquecedor. Na RTX 2060 SUPER, a auditoria identificou 27.826 arquivos SPIR-V, zero arquivos sinalizados como inválidos pelo auditor e 179 receitas compute. A validação em corrida está pendente.
 
 O código e os avisos de licença seguem o projeto de origem. [Licença](../LICENSE) · [Créditos](../AUTHORS.md) · [Histórico do launcher](../loader/CHANGELOG.md) · [Repositório oficial](https://github.com/RyGT-Team/rygt7).

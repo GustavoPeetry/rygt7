@@ -20,6 +20,12 @@ def load(name,path):
 @unittest.skipUnless(os.environ.get('GT7_SOURCE_ROOT') and os.environ.get('GT7_RENDERER_ROOT'), 'GT7 source or renderer root not supplied')
 class PackageIntegration(unittest.TestCase):
     def test_real_packager_and_validator(self):
+        self.package_and_validate()
+
+    def test_fork_packager_and_validator(self):
+        self.package_and_validate(fork=True)
+
+    def package_and_validate(self, fork=False):
         source=Path(os.environ['GT7_SOURCE_ROOT']).resolve()
         renderer_source=Path(os.environ['GT7_RENDERER_ROOT']).resolve()
         names=('GIT_CONFIG_COUNT','GIT_CONFIG_KEY_0','GIT_CONFIG_VALUE_0','GIT_CONFIG_KEY_1','GIT_CONFIG_VALUE_1','GIT_CONFIG_KEY_2','GIT_CONFIG_VALUE_2')
@@ -65,16 +71,32 @@ class PackageIntegration(unittest.TestCase):
               renderer_fetch_url=validator.FETCHED,launcher=root/'launcher.exe',converter=root/'converter.exe',
               wheel_probe=root/'probe.exe',renderer_source=renderer_source,renderer_deps_source=root/'renderer/externals',deps_source=root/'deps',out=root/'out',
               name='RyGT7-ci-'+commit[:8],dlss_plugin=root/'ryGT_dlss.dll',dlss_sdk=root/'dlss-sdk')
+            expected = {}
+            if fork:
+                args.project, args.branch = 'example/rygt7', 'optimizations'
+                args.prewarmer = root/'prewarmer.exe'
+                args.prewarmer.write_bytes(b'prewarmer fixture')
+                expected = dict(project=args.project, branch=args.branch, fork_version=(
+                    assembler.launcher_version(source), 'Modified By Gustavo Petry'))
             assembler.assemble(args)
             info=json.loads(args.info.read_text());info['renderer_vma_patch']=assembler.verify_renderer(renderer_source)
             args.info.write_text(json.dumps(info),encoding='utf-8')
-            assembler.package(args);validator.validate(root/'out',commit)
+            with mock.patch.object(assembler.sys, 'argv', []):
+                assembler.package(args)
+            with mock.patch.dict(os.environ, {'GITHUB_ACTIONS': 'false'}):
+                validator.validate(root/'out', commit, **expected)
             archive=root/'out'/(args.name+'.zip')
             with zipfile.ZipFile(archive) as z:
                 self.assertIn(args.name+'/licenses/RyGT7/3rdparty/fixture/LICENSES/nested/NOTICE.txt',z.namelist())
                 self.assertIn(args.name+'/licenses/shadGT7/externals/fixture/LICENSES/nested/NOTICE.txt',z.namelist())
                 self.assertEqual([n for n in z.namelist() if '/dlss/' in n],[args.name+'/dlss/ryGT_dlss.dll'])
                 for n in ('licenses/ryGT_dlss/LICENSE','licenses/NVIDIA-DLSS-SDK/LICENSE.txt'):self.assertIn(args.name+'/'+n,z.namelist())
+                prewarmer_path = args.name+'/tools/ryty_prewarm.exe'
+                if fork:
+                    self.assertEqual(z.read(prewarmer_path), args.prewarmer.read_bytes())
+                    self.assertIn(b'Modified By Gustavo Petry', z.read(args.name+'/README.txt'))
+                else:
+                    self.assertNotIn(prewarmer_path, z.namelist())
 
 def restore_env(original):
     for name,val in original.items():

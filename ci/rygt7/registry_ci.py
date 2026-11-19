@@ -46,16 +46,24 @@ def resolve():
                       f'- Build needed: `{str(needed).lower()}`\n\n')
     print(f'Resolved GT7 main {commit}; shadgt7 main {RENDERER}')
 
+def resolve_fork():
+    commit = os.environ['GITHUB_SHA']
+    if not SHA.fullmatch(commit): fail()
+    renderer = resolve_renderer()
+    with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
+        out.write(f'commit={commit}\nrenderer_commit={renderer}\n')
+    print(f'Resolved fork {commit}; shadgt7 {renderer}')
+
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
-def validate(folder, commit):
+def validate(folder, commit, *, project='rygt-team/rygt7', branch='main', fork_version=None):
     if not SHA.fullmatch(commit) or not SHA.fullmatch(RENDERER): fail()
     folder = Path(folder)
     name = f'RyGT7-ci-{commit[:8]}.zip'
     marker = json.loads((folder / 'CI-BUILD.json').read_text(encoding='utf-8-sig'))
-    if (marker.get('schema') != 1 or marker.get('project') != 'rygt-team/rygt7' or
-        marker.get('branch') != 'main' or marker.get('commit') != commit or
+    if (marker.get('schema') != 1 or marker.get('project') != project or
+        marker.get('branch') != branch or marker.get('commit') != commit or
         marker.get('renderer') != {'configured_repository': CONFIGURED, 'fetched_repository': FETCHED, 'commit': RENDERER} or
         'runtime_base' in marker or
         marker.get('build_info') != 'BUILD_INFO.json'): fail()
@@ -105,6 +113,14 @@ def validate(folder, commit):
         if (build.get('schema') != 1 or build.get('rygt7_commit') != commit or build.get('renderer_commit') != RENDERER or
             build.get('renderer_configured_url') != CONFIGURED or build.get('renderer_fetch_url') != FETCHED or
             'base_url' in build or 'base_sha256' in build): fail()  # FEAT-GTS-253: no runtime archive
+        if fork_version is not None:
+            version, attribution = fork_version
+            prewarmer = 'tools/ryty_prewarm.exe'
+            if prewarmer not in entries or build.get('launcher_version') != version or \
+                build.get('launcher_display_version') != f'{version} - {attribution}': fail()
+            components = build.get('components')
+            if not isinstance(components, dict) or components.get('prewarmer') != {
+                'origin': 'rygt7-source-build', 'sha256': digest(z.read(entries[prewarmer]))}: fail()
         control = marker.get('ci_control')
         if control != build.get('ci_control') or not isinstance(control, dict): fail()
         if os.environ.get('GITHUB_ACTIONS') == 'true':
@@ -129,5 +145,15 @@ def validate(folder, commit):
 if __name__ == '__main__':
     if len(sys.argv) != 2: fail()
     if sys.argv[1] == 'resolve': resolve()
+    elif sys.argv[1] == 'resolve-fork': resolve_fork()
     elif sys.argv[1] == 'validate': validate(os.environ.get('ARTIFACT_DIR', 'dist'), os.environ['SOURCE_SHA'])
+    elif sys.argv[1] == 'validate-fork':
+        from assemble import launcher_version
+        source = Path(__file__).resolve().parents[2]
+        version = launcher_version(source)
+        attribution = launcher_version(source, 'Attribution')
+        if not version or not attribution: fail()
+        validate(os.environ.get('ARTIFACT_DIR', 'dist'), os.environ['SOURCE_SHA'],
+                 project=os.environ['GITHUB_REPOSITORY'], branch=os.environ['GITHUB_REF_NAME'],
+                 fork_version=(version, attribution))
     else: fail()
